@@ -83,8 +83,8 @@ export const ApiAccessToggle = ({
             <InfoTooltip side="top" className="max-w-80">
               This controls whether the <code className="text-xs">anon</code> and{' '}
               <code className="text-xs">authenticated</code> roles have access to this table. When
-              disabled, select privileges are revoked from these roles, making the table
-              inaccessible via the Data API.
+              disabled, privileges are revoked from these roles, making the table inaccessible via
+              the Data API.
             </InfoTooltip>
           </p>
           <p className="text-sm text-foreground-lighter">
