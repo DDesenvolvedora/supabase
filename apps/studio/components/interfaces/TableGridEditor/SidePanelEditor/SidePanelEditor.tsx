@@ -8,6 +8,10 @@ import { useParams } from 'common'
 import { type GeneratedPolicy } from 'components/interfaces/Auth/Policies/Policies.utils'
 import { useDatabasePolicyCreateMutation } from 'data/database-policies/database-policy-create-mutation'
 import { databasePoliciesKeys } from 'data/database-policies/keys'
+import {
+  useTableApiAccessDisableMutation,
+  useTableApiAccessEnableMutation,
+} from 'data/privileges/table-api-access-mutation'
 import { useDatabasePublicationCreateMutation } from 'data/database-publications/database-publications-create-mutation'
 import { useDatabasePublicationsQuery } from 'data/database-publications/database-publications-query'
 import { useDatabasePublicationUpdateMutation } from 'data/database-publications/database-publications-update-mutation'
@@ -108,6 +112,7 @@ type SaveTableConfiguration = {
   importContent?: ImportContent
   isRLSEnabled: boolean
   isRealtimeEnabled: boolean
+  isApiAccessEnabled: boolean
   isDuplicateRows: boolean
   existingForeignKeyRelations: ForeignKeyConstraint[]
   primaryKey?: Constraint
@@ -176,6 +181,12 @@ export const SidePanelEditor = ({
     onError: () => {},
   })
   const { mutateAsync: createPolicy } = useDatabasePolicyCreateMutation({
+    onError: () => {}, // Errors handled inline
+  })
+  const { mutateAsync: enableApiAccess } = useTableApiAccessEnableMutation({
+    onError: () => {}, // Errors handled inline
+  })
+  const { mutateAsync: disableApiAccess } = useTableApiAccessDisableMutation({
     onError: () => {}, // Errors handled inline
   })
 
@@ -479,6 +490,28 @@ export const SidePanelEditor = ({
     }
   }
 
+  const updateTableApiAccess = async (table: RetrieveTableResult, enabled: boolean) => {
+    if (!project) return console.error('Project is required')
+
+    try {
+      if (enabled) {
+        await enableApiAccess({
+          projectRef: project.ref,
+          connectionString: project.connectionString,
+          relationId: table.id,
+        })
+      } else {
+        await disableApiAccess({
+          projectRef: project.ref,
+          connectionString: project.connectionString,
+          relationId: table.id,
+        })
+      }
+    } catch (error: any) {
+      toast.error(`Failed to ${enabled ? 'enable' : 'disable'} API access for ${table.name}: ${error.message}`)
+    }
+  }
+
   const saveTable = async ({
     action,
     payload,
@@ -495,6 +528,7 @@ export const SidePanelEditor = ({
       importContent,
       isRLSEnabled,
       isRealtimeEnabled,
+      isApiAccessEnabled,
       isDuplicateRows,
       existingForeignKeyRelations,
       primaryKey,
@@ -519,6 +553,8 @@ export const SidePanelEditor = ({
         })
 
         if (isRealtimeEnabled) await updateTableRealtime(table, true)
+        // For new tables, only call if API access should be disabled (default is enabled)
+        if (!isApiAccessEnabled) await updateTableApiAccess(table, false)
 
         // Invalidate queries for table creation
         await Promise.all([
@@ -560,6 +596,8 @@ export const SidePanelEditor = ({
           foreignKeyRelations,
         })
         if (isRealtimeEnabled) await updateTableRealtime(table, isRealtimeEnabled)
+        // For duplicated tables, only call if API access should be disabled (default is enabled)
+        if (!isApiAccessEnabled) await updateTableApiAccess(table, false)
 
         await Promise.all([
           queryClient.invalidateQueries({
@@ -594,6 +632,7 @@ export const SidePanelEditor = ({
         }
         if (isTableLike(table)) {
           await updateTableRealtime(table, isRealtimeEnabled)
+          await updateTableApiAccess(table, isApiAccessEnabled)
         }
 
         if (hasError) {

@@ -37,6 +37,7 @@ export const generateTableField = (): TableField => {
     columns: DEFAULT_COLUMNS,
     isRLSEnabled: true,
     isRealtimeEnabled: false,
+    isApiAccessEnabled: true,
   }
 }
 
@@ -55,6 +56,7 @@ export const generateTableFieldFromPostgresTable = (
     }),
     isRLSEnabled: table.rls_enabled,
     isRealtimeEnabled,
+    isApiAccessEnabled: undefined,
   }
 }
 
