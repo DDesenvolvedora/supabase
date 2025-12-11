@@ -5,13 +5,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useParams } from 'common'
-import { type GeneratedPolicy } from 'components/interfaces/Auth/Policies/Policies.utils'
 import { useDatabasePolicyCreateMutation } from 'data/database-policies/database-policy-create-mutation'
 import { databasePoliciesKeys } from 'data/database-policies/keys'
-import {
-  useTableApiAccessDisableMutation,
-  useTableApiAccessEnableMutation,
-} from 'data/privileges/table-api-access-mutation'
 import { useDatabasePublicationCreateMutation } from 'data/database-publications/database-publications-create-mutation'
 import { useDatabasePublicationsQuery } from 'data/database-publications/database-publications-query'
 import { useDatabasePublicationUpdateMutation } from 'data/database-publications/database-publications-update-mutation'
@@ -20,6 +15,12 @@ import type { ForeignKeyConstraint } from 'data/database/foreign-key-constraints
 import { databaseKeys } from 'data/database/keys'
 import { ENTITY_TYPE } from 'data/entity-types/entity-type-constants'
 import { entityTypeKeys } from 'data/entity-types/keys'
+import { useTableApiAccessPrivilegesMutation } from 'data/privileges/table-api-access-mutation'
+import {
+  API_PRIVILEGE_TYPES,
+  ApiPrivilegeType,
+  ApiPrivilegesPerRole,
+} from 'data/privileges/table-api-access-query'
 import { tableEditorKeys } from 'data/table-editor/keys'
 import { isTableLike } from 'data/table-editor/table-editor-types'
 import { tableRowKeys } from 'data/table-rows/keys'
@@ -112,11 +113,36 @@ type SaveTableConfiguration = {
   importContent?: ImportContent
   isRLSEnabled: boolean
   isRealtimeEnabled: boolean
-  isApiAccessEnabled: boolean
+  apiPrivileges?: ApiPrivilegesPerRole
   isDuplicateRows: boolean
   existingForeignKeyRelations: ForeignKeyConstraint[]
   primaryKey?: Constraint
 }
+
+type GeneratedPolicy = {
+  name: string
+  definition?: string | null
+  check?: string | null
+  command?: string | null
+  roles?: string[]
+}
+
+const getDefaultApiPrivileges = (): ApiPrivilegesPerRole => ({
+  anon: [...API_PRIVILEGE_TYPES] as ApiPrivilegeType[],
+  authenticated: [...API_PRIVILEGE_TYPES] as ApiPrivilegeType[],
+})
+
+const cloneApiPrivileges = (
+  privileges?:
+    | ApiPrivilegesPerRole
+    | { anon: readonly ApiPrivilegeType[]; authenticated: readonly ApiPrivilegeType[] }
+): ApiPrivilegesPerRole | undefined =>
+  privileges
+    ? {
+        anon: Array.from(privileges.anon) as ApiPrivilegeType[],
+        authenticated: Array.from(privileges.authenticated) as ApiPrivilegeType[],
+      }
+    : undefined
 
 export interface SidePanelEditorProps {
   editable?: boolean
@@ -183,10 +209,7 @@ export const SidePanelEditor = ({
   const { mutateAsync: createPolicy } = useDatabasePolicyCreateMutation({
     onError: () => {}, // Errors handled inline
   })
-  const { mutateAsync: enableApiAccess } = useTableApiAccessEnableMutation({
-    onError: () => {}, // Errors handled inline
-  })
-  const { mutateAsync: disableApiAccess } = useTableApiAccessDisableMutation({
+  const { mutateAsync: updateApiPrivileges } = useTableApiAccessPrivilegesMutation({
     onError: () => {}, // Errors handled inline
   })
 
@@ -490,25 +513,21 @@ export const SidePanelEditor = ({
     }
   }
 
-  const updateTableApiAccess = async (table: RetrieveTableResult, enabled: boolean) => {
+  const updateTableApiAccess = async (
+    table: RetrieveTableResult,
+    privileges: ApiPrivilegesPerRole
+  ) => {
     if (!project) return console.error('Project is required')
 
     try {
-      if (enabled) {
-        await enableApiAccess({
-          projectRef: project.ref,
-          connectionString: project.connectionString,
-          relationId: table.id,
-        })
-      } else {
-        await disableApiAccess({
-          projectRef: project.ref,
-          connectionString: project.connectionString,
-          relationId: table.id,
-        })
-      }
+      await updateApiPrivileges({
+        projectRef: project.ref,
+        connectionString: project.connectionString,
+        relationId: table.id,
+        privileges,
+      })
     } catch (error: any) {
-      toast.error(`Failed to ${enabled ? 'enable' : 'disable'} API access for ${table.name}: ${error.message}`)
+      toast.error(`Failed to update API access privileges for ${table.name}: ${error.message}`)
     }
   }
 
@@ -528,7 +547,7 @@ export const SidePanelEditor = ({
       importContent,
       isRLSEnabled,
       isRealtimeEnabled,
-      isApiAccessEnabled,
+      apiPrivileges,
       isDuplicateRows,
       existingForeignKeyRelations,
       primaryKey,
@@ -553,8 +572,9 @@ export const SidePanelEditor = ({
         })
 
         if (isRealtimeEnabled) await updateTableRealtime(table, true)
-        // For new tables, only call if API access should be disabled (default is enabled)
-        if (!isApiAccessEnabled) await updateTableApiAccess(table, false)
+        // For new tables, set the selected privileges (default is all if undefined)
+        const privilegesToSet: ApiPrivilegesPerRole = apiPrivileges ?? getDefaultApiPrivileges()
+        await updateTableApiAccess(table, privilegesToSet)
 
         // Invalidate queries for table creation
         await Promise.all([
@@ -596,8 +616,9 @@ export const SidePanelEditor = ({
           foreignKeyRelations,
         })
         if (isRealtimeEnabled) await updateTableRealtime(table, isRealtimeEnabled)
-        // For duplicated tables, only call if API access should be disabled (default is enabled)
-        if (!isApiAccessEnabled) await updateTableApiAccess(table, false)
+        // For duplicated tables, set the selected privileges (default is all if undefined)
+        const duplicatePrivileges: ApiPrivilegesPerRole = apiPrivileges ?? getDefaultApiPrivileges()
+        await updateTableApiAccess(table, duplicatePrivileges)
 
         await Promise.all([
           queryClient.invalidateQueries({
@@ -632,7 +653,9 @@ export const SidePanelEditor = ({
         }
         if (isTableLike(table)) {
           await updateTableRealtime(table, isRealtimeEnabled)
-          await updateTableApiAccess(table, isApiAccessEnabled)
+          if (apiPrivileges) {
+            await updateTableApiAccess(table, apiPrivileges)
+          }
         }
 
         if (hasError) {
@@ -773,6 +796,9 @@ export const SidePanelEditor = ({
                 columns: snap.sidePanel.templateData.columns
                   ? [...snap.sidePanel.templateData.columns]
                   : undefined,
+                apiPrivileges: cloneApiPrivileges(
+                  snap.sidePanel.templateData.apiPrivileges as ApiPrivilegesPerRole | undefined
+                ),
               }
             : undefined
         }

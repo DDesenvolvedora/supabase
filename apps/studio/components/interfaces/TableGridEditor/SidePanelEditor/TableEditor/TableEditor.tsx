@@ -213,7 +213,7 @@ export const TableEditor = ({
           importContent,
           isRLSEnabled: tableFields.isRLSEnabled,
           isRealtimeEnabled: tableFields.isRealtimeEnabled,
-          isApiAccessEnabled: tableFields.isApiAccessEnabled ?? true,
+          apiPrivileges: tableFields.apiPrivileges,
           isDuplicateRows: isDuplicateRows,
           existingForeignKeyRelations: foreignKeys,
           primaryKey,
@@ -551,8 +551,8 @@ export const TableEditor = ({
           tableFields={tableFields}
           isNewRecord={isNewRecord}
           isDuplicating={isDuplicating}
-          onChange={(value) => onUpdateField({ isApiAccessEnabled: value })}
-          onInitialLoad={(value) => onUpdateField({ isApiAccessEnabled: value })}
+          onChange={(privileges) => onUpdateField({ apiPrivileges: privileges })}
+          onInitialLoad={(privileges) => onUpdateField({ apiPrivileges: privileges })}
         />
 
         {/* [Joshen] Temporarily hide this section if duplicating, as we aren't duplicating policies atm when duplicating tables */}

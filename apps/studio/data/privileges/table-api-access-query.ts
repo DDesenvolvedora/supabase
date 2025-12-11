@@ -2,9 +2,29 @@ import { QueryClient } from '@tanstack/react-query'
 
 import type { ExecuteSqlError } from 'data/sql/execute-sql-query'
 import { privilegeKeys } from './keys'
+import { TablePrivilegesGrant } from './table-privileges-grant-mutation'
 import { TablePrivilegesData, useTablePrivilegesQuery } from './table-privileges-query'
 
 export const API_ACCESS_ROLES = ['anon', 'authenticated'] as const
+export type ApiAccessRole = (typeof API_ACCESS_ROLES)[number]
+
+export type ApiPrivilegeType = TablePrivilegesGrant['privilegeType']
+
+export const API_PRIVILEGE_TYPES: ApiPrivilegeType[] = [
+  'SELECT',
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'TRUNCATE',
+  'REFERENCES',
+  'TRIGGER',
+  'MAINTAIN',
+]
+
+export type ApiPrivilegesPerRole = {
+  anon: ApiPrivilegeType[]
+  authenticated: ApiPrivilegeType[]
+}
 
 export type TableApiAccessVariables = {
   projectRef?: string
@@ -14,21 +34,9 @@ export type TableApiAccessVariables = {
   tableName?: string
 }
 
-type TableApiAccessResponse = {
-  relation_id: number
-  schema: string
-  name: string
-  privileges: {
-    grantor: string
-    grantee: string
-    privilege_type: string
-    is_grantable: boolean
-  }[]
-} | null
-
 export type TableApiAccessData = {
   hasApiAccess: boolean
-  rolesWithAccess: Set<(typeof API_ACCESS_ROLES)[number]>
+  privileges: ApiPrivilegesPerRole
 }
 export type TableApiAccessError = ExecuteSqlError
 
@@ -47,18 +55,26 @@ const mapPrivilegesToApiAccess = (
       : entry.schema === schema && entry.name === tableName
   )
 
-  const privileges = target?.privileges ?? []
-  const rolesWithAccess = new Set(
-    privileges
-      .filter((privilege) =>
-        API_ACCESS_ROLES.includes(privilege.grantee as (typeof API_ACCESS_ROLES)[number])
-      )
-      .map((privilege) => privilege.grantee as (typeof API_ACCESS_ROLES)[number])
-  )
+  const allPrivileges = target?.privileges ?? []
+
+  // Get privileges per role
+  const privilegesPerRole: ApiPrivilegesPerRole = { anon: [], authenticated: [] }
+
+  for (const role of API_ACCESS_ROLES) {
+    const rolePrivileges = allPrivileges
+      .filter((p) => p.grantee === role)
+      .map((p) => p.privilege_type as ApiPrivilegeType)
+      .filter((p) => API_PRIVILEGE_TYPES.includes(p))
+
+    privilegesPerRole[role] = rolePrivileges
+  }
+
+  const hasApiAccess =
+    privilegesPerRole.anon.length > 0 || privilegesPerRole.authenticated.length > 0
 
   return {
-    hasApiAccess: rolesWithAccess.size > 0,
-    rolesWithAccess,
+    hasApiAccess,
+    privileges: privilegesPerRole,
   }
 }
 

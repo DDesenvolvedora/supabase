@@ -4,7 +4,12 @@ import { toast } from 'sonner'
 
 import { executeSql } from 'data/sql/execute-sql-query'
 import type { ResponseError, UseCustomMutationOptions } from 'types'
-import { API_ACCESS_ROLES, invalidateTableApiAccessQuery } from './table-api-access-query'
+import {
+  API_ACCESS_ROLES,
+  API_PRIVILEGE_TYPES,
+  ApiPrivilegesPerRole,
+  invalidateTableApiAccessQuery,
+} from './table-api-access-query'
 import { invalidateTablePrivilegesQuery } from './table-privileges-query'
 
 export type TableApiAccessVariables = {
@@ -13,71 +18,87 @@ export type TableApiAccessVariables = {
   relationId: number
 }
 
-export async function enableTableApiAccess({
+export type TableApiAccessPrivilegesVariables = {
+  projectRef: string
+  connectionString?: string | null
+  relationId: number
+  privileges: ApiPrivilegesPerRole
+}
+
+export async function updateTableApiAccessPrivileges({
   projectRef,
   connectionString,
   relationId,
-}: TableApiAccessVariables) {
-  const sql = pgMeta.tablePrivileges
-    .grant(
-      API_ACCESS_ROLES.map((role) => ({
+  privileges,
+}: TableApiAccessPrivilegesVariables) {
+  const sqlStatements: string[] = []
+
+  for (const role of API_ACCESS_ROLES) {
+    const rolePrivileges = privileges[role]
+
+    // Determine which privileges to grant and revoke for this role
+    const privilegesToGrant = rolePrivileges
+    const privilegesToRevoke = API_PRIVILEGE_TYPES.filter((p) => !rolePrivileges.includes(p))
+
+    // Revoke privileges that should be removed
+    if (privilegesToRevoke.length > 0) {
+      const revokeGrants = privilegesToRevoke.map((privilegeType) => ({
         grantee: role,
-        privilegeType: 'ALL' as const,
+        privilegeType,
         relationId,
       }))
-    )
-    .sql.trim()
+      const revokeSql = pgMeta.tablePrivileges.revoke(revokeGrants).sql.trim()
+      if (revokeSql) sqlStatements.push(revokeSql)
+    }
+
+    // Grant privileges that should be added
+    if (privilegesToGrant.length > 0) {
+      const grantGrants = privilegesToGrant.map((privilegeType) => ({
+        grantee: role,
+        privilegeType,
+        relationId,
+      }))
+      const grantSql = pgMeta.tablePrivileges.grant(grantGrants).sql.trim()
+      if (grantSql) sqlStatements.push(grantSql)
+    }
+  }
+
+  if (sqlStatements.length === 0) {
+    return null
+  }
 
   const { result } = await executeSql({
     projectRef,
     connectionString,
-    sql,
-    queryKey: ['table-api-access', 'grant'],
+    sql: sqlStatements.join('\n'),
+    queryKey: ['table-api-access', 'update-privileges'],
   })
 
   return result
 }
 
-export async function disableTableApiAccess({
-  projectRef,
-  connectionString,
-  relationId,
-}: TableApiAccessVariables) {
-  const sql = pgMeta.tablePrivileges
-    .revoke(
-      API_ACCESS_ROLES.map((role) => ({
-        grantee: role,
-        privilegeType: 'ALL' as const,
-        relationId,
-      }))
-    )
-    .sql.trim()
+type UpdateTableApiAccessPrivilegesData = Awaited<ReturnType<typeof updateTableApiAccessPrivileges>>
 
-  const { result } = await executeSql({
-    projectRef,
-    connectionString,
-    sql,
-    queryKey: ['table-api-access', 'revoke'],
-  })
-
-  return result
-}
-
-type EnableTableApiAccessData = Awaited<ReturnType<typeof enableTableApiAccess>>
-type DisableTableApiAccessData = Awaited<ReturnType<typeof disableTableApiAccess>>
-
-export const useTableApiAccessEnableMutation = ({
+export const useTableApiAccessPrivilegesMutation = ({
   onSuccess,
   onError,
   ...options
 }: Omit<
-  UseCustomMutationOptions<EnableTableApiAccessData, ResponseError, TableApiAccessVariables>,
+  UseCustomMutationOptions<
+    UpdateTableApiAccessPrivilegesData,
+    ResponseError,
+    TableApiAccessPrivilegesVariables
+  >,
   'mutationFn'
 > = {}) => {
   const queryClient = useQueryClient()
 
-  return useMutation<EnableTableApiAccessData, ResponseError, TableApiAccessVariables>({
-    mutationFn: (vars) => enableTableApiAccess(vars),
+  return useMutation<
+    UpdateTableApiAccessPrivilegesData,
+    ResponseError,
+    TableApiAccessPrivilegesVariables
+  >({
+    mutationFn: (vars) => updateTableApiAccessPrivileges(vars),
     async onSuccess(data, variables, context) {
       const { projectRef, relationId } = variables
 
@@ -90,7 +111,7 @@ export const useTableApiAccessEnableMutation = ({
     },
     async onError(data, variables, context) {
       if (onError === undefined) {
-        toast.error(`Failed to enable API access: ${data.message}`)
+        toast.error(`Failed to update API access privileges: ${data.message}`)
       } else {
         onError(data, variables, context)
       }
@@ -98,37 +119,3 @@ export const useTableApiAccessEnableMutation = ({
     ...options,
   })
 }
-
-export const useTableApiAccessDisableMutation = ({
-  onSuccess,
-  onError,
-  ...options
-}: Omit<
-  UseCustomMutationOptions<DisableTableApiAccessData, ResponseError, TableApiAccessVariables>,
-  'mutationFn'
-> = {}) => {
-  const queryClient = useQueryClient()
-
-  return useMutation<DisableTableApiAccessData, ResponseError, TableApiAccessVariables>({
-    mutationFn: (vars) => disableTableApiAccess(vars),
-    async onSuccess(data, variables, context) {
-      const { projectRef, relationId } = variables
-
-      await Promise.all([
-        invalidateTablePrivilegesQuery(queryClient, projectRef),
-        invalidateTableApiAccessQuery(queryClient, projectRef, relationId),
-      ])
-
-      await onSuccess?.(data, variables, context)
-    },
-    async onError(data, variables, context) {
-      if (onError === undefined) {
-        toast.error(`Failed to disable API access: ${data.message}`)
-      } else {
-        onError(data, variables, context)
-      }
-    },
-    ...options,
-  })
-}
-
