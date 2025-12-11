@@ -15,10 +15,6 @@ export const API_PRIVILEGE_TYPES: ApiPrivilegeType[] = [
   'INSERT',
   'UPDATE',
   'DELETE',
-  'TRUNCATE',
-  'REFERENCES',
-  'TRIGGER',
-  'MAINTAIN',
 ]
 
 export type ApiPrivilegesPerRole = {

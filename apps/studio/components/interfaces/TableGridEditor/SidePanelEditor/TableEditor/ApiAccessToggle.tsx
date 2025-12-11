@@ -47,17 +47,6 @@ const createDefaultRolePrivileges = (): ApiPrivilegesPerRole => ({
   authenticated: [...API_PRIVILEGE_TYPES],
 })
 
-const PRIVILEGE_LABELS: Partial<Record<ApiPrivilegeType, string>> = {
-  SELECT: 'Read (SELECT)',
-  INSERT: 'Create (INSERT)',
-  UPDATE: 'Update (UPDATE)',
-  DELETE: 'Delete (DELETE)',
-  TRUNCATE: 'Truncate (TRUNCATE)',
-  REFERENCES: 'References (REFERENCES)',
-  TRIGGER: 'Trigger (TRIGGER)',
-  MAINTAIN: 'Maintain (MAINTAIN)',
-}
-
 const ROLE_LABELS: Record<ApiAccessRole, string> = {
   anon: 'Anonymous (anon)',
   authenticated: 'Authenticated',
@@ -243,7 +232,7 @@ export const ApiAccessToggle = ({
                           <MultiSelectorList>
                             {API_PRIVILEGE_TYPES.map((privilege) => (
                               <MultiSelectorItem key={privilege} value={privilege}>
-                                {PRIVILEGE_LABELS[privilege]}
+                                {privilege}
                               </MultiSelectorItem>
                             ))}
                           </MultiSelectorList>
