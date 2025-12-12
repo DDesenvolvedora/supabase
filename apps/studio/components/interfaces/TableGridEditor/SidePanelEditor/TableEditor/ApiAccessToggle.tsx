@@ -97,21 +97,27 @@ export const ApiAccessToggle = ({
   const derivedPrivileges: ApiPrivilegesPerRole =
     tableFields.apiPrivileges ?? apiAccessData?.privileges ?? defaultPrivileges
 
+  const emptyPrivileges: ApiPrivilegesPerRole = useMemo(() => ({ anon: [], authenticated: [] }), [])
+
+  const effectivePrivileges =
+    !isSchemaExposed && (isNewRecord || isDuplicating) ? emptyPrivileges : derivedPrivileges
+
   useEffect(() => {
-    if (apiAccessData?.privileges && tableFields.apiPrivileges === undefined) {
+    if (isSchemaExposed && apiAccessData?.privileges && tableFields.apiPrivileges === undefined) {
       onInitialLoad?.(apiAccessData.privileges)
     }
-  }, [apiAccessData?.privileges, onInitialLoad, tableFields.apiPrivileges])
+  }, [apiAccessData?.privileges, isSchemaExposed, onInitialLoad, tableFields.apiPrivileges])
 
   // For new records or duplicating, the query is disabled so we don't need to wait for loading
   const [isPrivilegesPopoverOpen, setIsPrivilegesPopoverOpen] = useState(false)
 
   const isLoadingState = !isNewRecord && !isDuplicating && isApiAccessLoading
-  const isDisabled = isLoadingState
+  const isDisabled = isLoadingState || !isSchemaExposed
 
-  const isSwitchOn = Object.values(derivedPrivileges).some((privs) => privs.length > 0)
+  const isSwitchOn = Object.values(effectivePrivileges).some((privs) => privs.length > 0)
 
   const handleMasterToggle = (checked: boolean) => {
+    if (!isSchemaExposed) return
     if (!checked) {
       onChange?.({ anon: [], authenticated: [] })
     } else {
@@ -120,8 +126,9 @@ export const ApiAccessToggle = ({
   }
 
   const handlePrivilegesChange = (role: ApiAccessRole) => (values: string[]) => {
+    if (!isSchemaExposed) return
     const updatedPrivileges: ApiPrivilegesPerRole = {
-      ...derivedPrivileges,
+      ...effectivePrivileges,
       [role]: values as ApiPrivilegeType[],
     }
 
@@ -161,24 +168,16 @@ export const ApiAccessToggle = ({
 
   const apiUrl = apiBaseUrl && tablePath ? `${apiBaseUrl}/${tablePath}` : undefined
 
-  const hasAnyPrivileges = Object.values(derivedPrivileges).some((privileges) => privileges.length)
+  const hasAnyPrivileges = Object.values(effectivePrivileges).some(
+    (privileges) => privileges.length
+  )
   const totalAvailablePrivileges = API_ACCESS_ROLES.length * API_PRIVILEGE_TYPES.length
-  const totalSelectedPrivileges = Object.values(derivedPrivileges).reduce(
+  const totalSelectedPrivileges = Object.values(effectivePrivileges).reduce(
     (acc, privileges) => acc + privileges.length,
     0
   )
   const hasPartialPrivileges =
     totalSelectedPrivileges > 0 && totalSelectedPrivileges < totalAvailablePrivileges
-
-  const privilegeSummary = (privs: ApiPrivilegesPerRole) => {
-    const summary = API_ACCESS_ROLES.map((role) => {
-      const rolePrivs = privs[role]
-      const label = ROLE_LABELS[role]
-      if (!rolePrivs.length) return `${label}: None`
-      return `${label}: ${rolePrivs.join(', ')}`
-    }).join(' • ')
-    return summary
-  }
 
   return (
     <div className="space-y-3">
@@ -219,7 +218,7 @@ export const ApiAccessToggle = ({
                         {ROLE_LABELS[role]}
                       </p>
                       <MultiSelector
-                        values={isSchemaExposed ? derivedPrivileges[role] : []}
+                        values={effectivePrivileges[role]}
                         onValuesChange={handlePrivilegesChange(role)}
                         disabled={isDisabled}
                       >
